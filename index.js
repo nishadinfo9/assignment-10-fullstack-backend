@@ -99,7 +99,7 @@ async function run() {
     });
 
     app.get("/habits", async (req, res) => {
-      const cursor = habitCollection.find();
+      const cursor = habitCollection.find().sort({ createdAt: -1 });
       const result = await cursor.toArray();
       res.send(result);
     });
