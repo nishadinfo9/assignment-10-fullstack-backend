@@ -195,11 +195,11 @@ app.listen(port, () => {
 });
 
 // call batabases
-client
-  .connect()
-  .then(() => {
-    app.listen(port, () => {
-      console.log(`Server is running now on port: ${port}`);
-    });
-  })
-  .catch(console.dir);
+// client
+//   .connect()
+//   .then(() => {
+//     app.listen(port, () => {
+//       console.log(`Server is running now on port: ${port}`);
+//     });
+//   })
+//   .catch(console.dir);
