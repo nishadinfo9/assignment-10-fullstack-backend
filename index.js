@@ -18,18 +18,19 @@ admin.initializeApp({
 });
 
 const verifyFireBaseToken = async (req, res, next) => {
-  const authorization = req.header.authorization;
+  const authorization = req.headers.authorization;
   if (!authorization) {
     return;
   }
-  const token = token.split(" ")[1];
+  const token = authorization.split(" ")[1];
   if (!token) {
     return;
   }
 
   try {
     const decoded = await admin.auth().verifyIdToken(token);
-    res.send(decoded);
+    console.log("inside token", decoded);
+    req.token_email = decoded.email;
     next();
   } catch (error) {}
   if (!decoded) {
@@ -122,7 +123,7 @@ async function run() {
       const query = {};
 
       if (email) {
-        query.buyer_email = email;
+        query.author_email = email;
       }
 
       if (email !== req.token_email) {
@@ -133,18 +134,6 @@ async function run() {
       const result = await cursor.toArray();
       res.send(result);
     });
-
-    //my habids
-    // app.get("/habits", async (req, res) => {
-    //   const email = req.query.email;
-    //   const query = {};
-    //   if (email) {
-    //     query.author_email = email;
-    //   }
-    //   const cursor = habitCollection.find(query);
-    //   const result = await cursor();
-    //   res.send(result);
-    // });
 
     // daily stack
     app.patch("/habits/mark/:id", async (req, res) => {
