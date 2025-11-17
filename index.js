@@ -111,6 +111,12 @@ async function run() {
       res.send(getById);
     });
 
+    app.get("/recent", async (req, res) => {
+      const cursor = habitCollection.find().sort({ createdAt: -1 }).limit(6);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
     app.get("/my-habits", verifyFireBaseToken, async (req, res) => {
       const email = req.query.email;
       const query = {};
@@ -140,8 +146,7 @@ async function run() {
     //   res.send(result);
     // });
 
-
-    // daily stack 
+    // daily stack
     app.patch("/habits/mark/:id", async (req, res) => {
       const id = req.params.id;
       if (!id) return;
