@@ -59,7 +59,7 @@ app.get("/data", (req, res) => {
 async function run() {
   try {
     await client.connect();
-    const db = client.db("habit-tracker-app");
+    const db = client.db("habits-app");
     const habitCollection = db.collection("habit");
 
     // controller
