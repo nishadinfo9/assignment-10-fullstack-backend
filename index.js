@@ -1,5 +1,6 @@
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const dotenv = require("dotenv");
 dotenv.config("/.env");
@@ -60,130 +61,264 @@ async function run() {
   try {
     await client.connect();
     const db = client.db("habits-app");
-    const habitCollection = db.collection("habit");
+    const habitCollection = db.collection("habits");
+    const userCollection = db.collection("users");
 
     // controller
-    app.post("/habits", async (req, res) => {
-      const newData = {
-        ...req.body,
-        stack: 0,
-        completionHistory: [],
-        createdAt: new Date(),
-      };
-      const cretaedHabits = await habitCollection.insertOne(newData);
-      res.send(cretaedHabits);
-    });
+    app.post("/user/create-account", async (req, res) => {
+      try {
+        const { fullName, email, photoURL, password, provider, emailVerified } =
+          req.body;
 
-    app.patch("/habits/update/:id", async (req, res) => {
-      const id = req.params.id;
-      if (!id) return;
-      const query = { _id: new ObjectId(id) };
-      const updatedData = req.body;
-      const update = {
-        $set: {
-          title: updatedData.title,
-          description: updatedData.description,
-          category: updatedData.category,
-        },
-      };
-      const result = await habitCollection.updateOne(query, update);
-      res.send(result);
-    });
+        if (!fullName || !email || !photoURL || !password) {
+          return res.status(400).json({ message: "all field are empty" });
+        }
 
-    app.delete("/habits/delete/:id", async (req, res) => {
-      const id = req.params.id;
-      if (!id) return;
-      const query = { _id: new ObjectId(id) };
-      const result = await habitCollection.deleteOne(query);
-      res.send(result);
-    });
+        const existUser = await userCollection.findOne({ email });
 
-    app.get("/habits", async (req, res) => {
-      const cursor = habitCollection.find().sort({ createdAt: -1 });
-      const result = await cursor.toArray();
-      res.send(result);
-    });
+        if (existUser) {
+          const isPasswordCorrect = await bcrypt.compare(
+            password,
+            existUser.password
+          );
 
-    app.get("/habits/:id", async (req, res) => {
-      const id = req.params.id;
-      if (!id) return;
-      const query = { _id: new ObjectId(id) };
-      const getById = await habitCollection.findOne(query);
-      res.send(getById);
-    });
+          if (!isPasswordCorrect) {
+            return res.status(401).json({ message: "Invalid Credentials" });
+          }
 
-    app.get("/recent", async (req, res) => {
-      const cursor = habitCollection.find().sort({ createdAt: -1 }).limit(6);
-      const result = await cursor.toArray();
-      res.send(result);
-    });
+          return res
+            .status(200)
+            .json({ message: "recent user login successfully" });
+        }
 
-    app.get("/my-habits", verifyFireBaseToken, async (req, res) => {
-      const email = req.query.email;
-      const query = {};
+        const hashedPasword = await bcrypt.hash(password, 10);
 
-      if (email) {
-        query.author_email = email;
-      }
+        if (!hashedPasword) {
+          return res.status(401).json({ message: "password hashed faild" });
+        }
 
-      if (email !== req.token_email) {
-        return res.status(403).send({ message: "forbeden access" });
-      }
-
-      const cursor = habitCollection.find(query);
-      const result = await cursor.toArray();
-      res.send(result);
-    });
-
-    // daily stack
-    app.patch("/habits/mark/:id", async (req, res) => {
-      const id = req.params.id;
-      if (!id) return;
-      const query = { _id: new ObjectId(id) };
-      const today = new Date().toISOString().split("T")[0];
-
-      const habits = await habitCollection.findOne(query);
-      const isTodayCompleted = habits?.completionHistory?.includes(today);
-      let updateData = {};
-
-      if (!isTodayCompleted) {
-        updateData = {
-          $push: { completionHistory: today },
-          $inc: { stack: 1 },
-        };
-      } else {
-        return res
-          .status(401)
-          .json({ message: "today is completed", updateData });
-      }
-
-      const updateCompletionHistory = await habitCollection.updateOne(
-        query,
-        updateData
-      );
-      res.send(updateCompletionHistory);
-    });
-
-    app.patch("/habits/missed/:id", async (req, res) => {
-      const id = req.params.id;
-      if (!id) return;
-      const query = { _id: new ObjectId(id) };
-
-      const habits = await habitCollection.findOne(query);
-
-      const today = new Date().toISOString().split("T")[0];
-      const lastDate =
-        habits.completionHistory[habits.completionHistory?.length - 1];
-
-      const diffdate =
-        (new Date(today) - new Date(lastDate)) / (1000 * 60 * 60 * 24);
-
-      if (diffdate >= 2) {
-        await habitCollection.updateOne(query, {
-          $inc: { stack: -1 },
+        const user = userCollection.insertOne({
+          fullName,
+          email,
+          photoURL,
+          password: hashedPasword,
+          provider,
+          emailVerified,
         });
+
+        return res
+          .status(201)
+          .json({ message: "account created successfully", user });
+      } catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "Internal server error" });
       }
-      res.send({ message: "checked" });
+    });
+
+    //Dashboard
+    app.post("/habit/add", async (req, res) => {
+      try {
+        const { habitName } = req.body;
+
+        if (!habitName) {
+          return res.status(400).json({ message: "habitName does not exist" });
+        }
+
+        const today = new Date().toISOString().split("T")[0];
+
+        const newHabit = {
+          _id: new ObjectId(),
+          habitName,
+          streak: 0,
+          completed: false,
+          pinned: false,
+          history: {
+            [today]: true,
+          },
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        await habitCollection.insertOne(newHabit);
+
+        return res
+          .status(201)
+          .json({ message: "habit created successfully", habit: newHabit });
+      } catch (error) {
+        console.log("habit creatde error", error);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.patch("/habit/update-habit/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { habitName } = req.body;
+        console.log(habitName);
+
+        if (!id) {
+          return res
+            .status(400)
+            .json({ message: "habit updated id does not exist" });
+        }
+
+        if (!habitName) {
+          return res
+            .status(400)
+            .json({ message: "updated habit does not exist" });
+        }
+
+        const query = { _id: new ObjectId(id) };
+
+        const update = await habitCollection.findOneAndUpdate(
+          query,
+          {
+            $set: {
+              habitName: habitName,
+            },
+          },
+          { returnDocument: "after" }
+        );
+
+        return res
+          .status(200)
+          .json({ message: "habit updated successfully", habit: update });
+      } catch (error) {
+        console.log("habit update error", error);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.get("/habit/all-habits", async (req, res) => {
+      try {
+        const todayStr = new Date().toISOString().split("T")[0];
+        const habits = await habitCollection
+          .find(
+            {},
+            {
+              projection: { habitName: 1, pinned: 1, history: 1, completed: 1 },
+            }
+          )
+          .sort({ pinned: -1, createdAt: -1 })
+          .toArray();
+
+        const todayHabits = habits.map((h) => ({
+          _id: h._id,
+          habitName: h.habitName,
+          pinned: h.pinned,
+          completed: !!h.history?.[todayStr],
+        }));
+
+        if (!todayHabits) {
+          return res.status(404).json({ message: "todayHabits not found" });
+        }
+
+        return res.status(200).json({
+          message: "todayHabits found successfully",
+          habits: todayHabits,
+        });
+      } catch (error) {
+        console.log("all habits found successfully", error);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.delete("/habit/delete/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        console.log("id", id);
+
+        if (!id) {
+          return res.status(400).json({ message: "delete id does not exist" });
+        }
+
+        const query = { _id: new ObjectId(id) };
+
+        const deleteHabit = await habitCollection.deleteOne(query);
+
+        if (!deleteHabit) {
+          return res.status(401).json({ message: "habit deleted failed" });
+        }
+
+        return res
+          .status(200)
+          .json({ message: "habit deleted successfully", habit: deleteHabit });
+      } catch (error) {
+        console.log("habit deleted error", error);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.patch("/habit/habit-completion/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { isCompleted } = req.body;
+        if (!id) {
+          return res
+            .status(400)
+            .json({ message: "habit completion id does not exist" });
+        }
+        const query = { _id: new ObjectId(id) };
+
+        const habit = await habitCollection.findOne(query);
+
+        if (!habit) {
+          return res.status(401).json({ message: "habit not found" });
+        }
+
+        const today = new Date().toISOString().split("T")[0];
+
+        habit.history[today] = !habit.history[today];
+
+        const dates = Object.keys(habit.history).sort().reverse();
+
+        let streak = 0;
+        for (const date of dates) {
+          if (!habit.history[date]) break;
+          streak++;
+        }
+
+        habit.streak = streak;
+        habit.completed = habit.history[today];
+        habit.updatedAt = new Date();
+
+        await habitCollection.updateOne(query, {
+          $set: {
+            history: habit.history,
+            streak: habit.streak,
+            completed: isCompleted,
+          },
+        });
+        return res
+          .status(200)
+          .json({ message: "toggle completion successfully", habit });
+      } catch (error) {
+        console.log("toggle completion failed", error);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    });
+
+    app.patch("/habit/pin-habit/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { pinned } = req.body;
+
+        const habit = await habitCollection.findOne({ _id: new ObjectId(id) });
+        if (!habit) return res.status(404).json({ message: "Habit not found" });
+
+        habit.pinned = pinned;
+        habit.updatedAt = new Date();
+
+        await habitCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { pinned: pinned } }
+        );
+
+        return res.status(200).json({ habit });
+      } catch (err) {
+        console.log(err);
+        return res.status(500).json({ message: "Internal server error" });
+      }
     });
   } finally {
   }
